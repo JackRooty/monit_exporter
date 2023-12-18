@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/log"
 	"github.com/spf13/viper"
@@ -63,6 +64,7 @@ type Config struct {
 	monit_scrape_uri string
 	monit_user       string
 	monit_password   string
+	host_label		 string
 }
 
 func FetchMonitStatus(c *Config) ([]byte, error) {
@@ -114,6 +116,7 @@ func ParseConfig() *Config {
 	v.SetDefault("monit_scrape_uri", "http://localhost:2812/_status?format=xml&level=full")
 	v.SetDefault("monit_user", "")
 	v.SetDefault("monit_password", "")
+	v.SetDefault("host_label", "No")
 	v.SetConfigFile(*configFile)
 	v.SetConfigType("toml")
 	err := v.ReadInConfig() // Find and read the config file
@@ -128,6 +131,7 @@ func ParseConfig() *Config {
 		monit_scrape_uri: v.GetString("monit_scrape_uri"),
 		monit_user:       v.GetString("monit_user"),
 		monit_password:   v.GetString("monit_password"),
+		host_label:       v.GetString("host_label"),
 	}
 }
 
@@ -146,7 +150,7 @@ func NewExporter(c *Config) (*Exporter, error) {
 			Name:      "exporter_service_check",
 			Help:      "Monit service check info",
 		},
-			[]string{"check_name", "type", "monitored"},
+			[]string{"check_name", "type", "monitored", "ignore"},
 		),
 	}, nil
 }
@@ -160,6 +164,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
 func (e *Exporter) scrape() error {
 	data, err := FetchMonitStatus(e.config)
+	config := ParseConfig()
 	if err != nil {
 		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
 		e.up.Set(0)
@@ -176,7 +181,7 @@ func (e *Exporter) scrape() error {
 			e.up.Set(1)
 			// Constructing metrics
 			for _, service := range parsedData.MonitServices {
-				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored}).Set(float64(service.Status))
+				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored, "ignore": config.host_label}).Set(float64(service.Status))
 			}
 		}
 		return err
@@ -206,7 +211,7 @@ func main() {
 	prometheus.MustRegister(exporter)
 
 	log.Printf("Starting monit_exporter: %s", config.listen_address)
-	http.Handle(config.metrics_path, prometheus.Handler())
+	http.Handle(config.metrics_path, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
             <head><title>Monit Exporter</title></head>

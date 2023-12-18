@@ -1,0 +1,8 @@
+FROM golang:1.21.0-bullseye
+ADD . /monit_exporter
+WORKDIR /monit_exporter
+RUN go mod init monit_exporter.go 
+RUN  go get github.com/prometheus/client_golang/prometheus/promhttp && go get github.com/prometheus/client_golang/prometheus && go get github.com/prometheus/client_golang/prometheus && go get github.com/prometheus/log && go get github.com/spf13/viper  && go get golang.org/x/net/html/charset 
+RUN go mod tidy
+RUN go build
+ENTRYPOINT ["tail", "-f", "/dev/null"]
