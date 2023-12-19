@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sync"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,7 +20,7 @@ import (
 const (
 	namespace = "monit" // Prefix for Prometheus metrics.
 )
-
+var ignore_label = "No"
 var configFile = flag.String("conf", "./config.toml", "Configuration file for exporter")
 
 var serviceTypes = map[int]string{
@@ -181,8 +182,14 @@ func (e *Exporter) scrape() error {
 			e.up.Set(1)
 			// Constructing metrics
 			for _, service := range parsedData.MonitServices {
-				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored, "ignore": config.host_label}).Set(float64(service.Status))
-			}
+				for _, label := range strings.Split(config.host_label, ", ") {
+					if service.Name == label{
+						ignore_label = label
+					} 
+				}
+				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored, "ignore": ignore_label}).Set(float64(service.Status))
+				ignore_label = "No"
+			}		
 		}
 		return err
 	}
