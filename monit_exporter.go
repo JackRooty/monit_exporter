@@ -45,6 +45,7 @@ type monitService struct {
 	Name      string `xml:"name"`
 	Status    int    `xml:"status"`
 	Monitored string `xml:"monitor"`
+	Uptime    int    `xml:"uptime"`
 }
 
 // Exporter collects monit stats from the given URI and exports them using
@@ -55,6 +56,7 @@ type Exporter struct {
 	client *http.Client
 
 	up          prometheus.Gauge
+	uptime      *prometheus.GaugeVec
 	checkStatus *prometheus.GaugeVec
 }
 
@@ -153,6 +155,13 @@ func NewExporter(c *Config) (*Exporter, error) {
 		},
 			[]string{"check_name", "type", "monitored", "ignore"},
 		),
+		uptime: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "exporter_service_uptime",
+			Help:      "Monit service uptime info",
+		},
+			[]string{"check_name", "type", "monitored", "ignore"},
+		),		
 	}, nil
 }
 
@@ -161,6 +170,7 @@ func NewExporter(c *Config) (*Exporter, error) {
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.up.Describe(ch)
 	e.checkStatus.Describe(ch)
+	e.uptime.Describe(ch)
 }
 
 func (e *Exporter) scrape() error {
@@ -170,6 +180,7 @@ func (e *Exporter) scrape() error {
 		// set "monit_exporter_up" gauge to 0, remove previous metrics from e.checkStatus vector
 		e.up.Set(0)
 		e.checkStatus.Reset()
+		e.uptime.Reset()
 		log.Errorf("Error getting monit status: %v", err)
 		return err
 	} else {
@@ -177,6 +188,7 @@ func (e *Exporter) scrape() error {
 		if err != nil {
 			e.up.Set(0)
 			e.checkStatus.Reset()
+			e.uptime.Reset()
 			log.Errorf("Error parsing data from monit: %v", err)
 		} else {
 			e.up.Set(1)
@@ -188,6 +200,7 @@ func (e *Exporter) scrape() error {
 					} 
 				}
 				e.checkStatus.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored, "ignore": ignore_label}).Set(float64(service.Status))
+				e.uptime.With(prometheus.Labels{"check_name": service.Name, "type": serviceTypes[service.Type], "monitored": service.Monitored, "ignore": ignore_label}).Set(float64(service.Uptime))
 				ignore_label = "No"
 			}		
 		}
@@ -201,9 +214,11 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.Lock() // Protect metrics from concurrent collects.
 	defer e.mutex.Unlock()
 	e.checkStatus.Reset()
+	e.uptime.Reset()
 	e.scrape()
 	e.up.Collect(ch)
 	e.checkStatus.Collect(ch)
+	e.uptime.Collect(ch)
 	return
 }
 
